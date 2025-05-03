@@ -5,12 +5,12 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Circular Image Editor</title>
-  <!-- Tailwind -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React & ReactDOM -->
+  <!-- React & ReactDOM (development builds) -->
   <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-  <!-- Babel for JSX -->
+  <!-- Babel for in‑browser JSX transform -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col items-center py-8">
@@ -19,33 +19,47 @@
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
 
-    // ────────────── Config ──────────────
-    const WORKING_CANVAS = 2000;
-    const EXPORT_MIN = 500;
-    const EXPORT_MAX = 3000;
+    /* ───────────────── Config ───────────────── */
+    const WORKING_CANVAS = 2000;              // internal high‑res canvas
+    const EXPORT_MIN     = 500;
+    const EXPORT_MAX     = 3000;
     const EXPORT_DEFAULT = 2000;
 
-    // ────────────── Helpers ──────────────
+    /* ───────────────── Helpers ───────────────── */
     const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
-    const Range = ({ value, min = 0, max = 1, step = 0.01, onChange, label }) => (
-      <div>
-        {label && <label className="block text-sm font-medium mb-1">{label}: <span className="font-mono">{value}</span></label>}
+    const download = (dataUrl, filename) => {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    const Range = ({ value, min, max, step = 1, onChange, label }) => (
+      <div className="space-y-1">
+        {label && (
+          <label className="block text-sm font-medium">
+            {label}: <span className="font-mono">{value}</span>
+          </label>
+        )}
         <input
           type="range"
+          className="w-full"
           min={min}
           max={max}
           step={step}
           value={value}
           onChange={(e) => onChange(clamp(parseFloat(e.target.value), min, max))}
-          className="w-full"
         />
       </div>
     );
 
     const TextInput = ({ value, onChange, placeholder, label }) => (
-      <div>
-        {label && <label className="block text-sm font-medium mb-1">{label}</label>}
+      <div className="space-y-1">
+        {label && <label className="block text-sm font-medium">{label}</label>}
         <input
           type="text"
           className="w-full p-2 border rounded"
@@ -56,50 +70,41 @@
       </div>
     );
 
-    const NumberInput = ({ value, onChange, min, max, step = 1, label }) => (
-      <div>
-        {label && <label className="block text-sm font-medium mb-1">{label}</label>}
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          className="w-full p-2 border rounded"
-          value={value}
-          onChange={(e) => {
-            const num = parseFloat(e.target.value);
-            if (!Number.isNaN(num)) onChange(clamp(num, min, max));
-          }}
-        />
-      </div>
-    );
-
-    // ────────────── App ──────────────
+    /* ───────────────── App ───────────────── */
     function App() {
       /* Image */
       const [image, setImage] = useState(null);
       const [imageScale, setImageScale] = useState(1);
-      const [imagePos, setImagePos] = useState({ x: 0, y: 0 });
-      const [imageRot, setImageRot] = useState(0);
-      const [dragging, setDragging] = useState(false);
+      const [imagePos, setImagePos]   = useState({ x: 0, y: 0 });
+      const [imageRot, setImageRot]   = useState(0);
+      const [dragging, setDragging]   = useState(false);
       const dragStart = useRef({ x: 0, y: 0 });
 
       /* Text */
       const [topText, setTopText] = useState('');
       const [botText, setBotText] = useState('');
-      const [fontSize, setFontSize] = useState(48);
+
+      // per‑side typographic settings
+      const [topFontSize, setTopFontSize] = useState(48);
+      const [botFontSize, setBotFontSize] = useState(48);
+
+      const [topSpacing, setTopSpacing] = useState(1);
+      const [botSpacing, setBotSpacing] = useState(1);
+
+      const [topDist, setTopDist] = useState(40);
+      const [botDist, setBotDist] = useState(40);
+
       const [fontWeight, setFontWeight] = useState('bold');
-      const [fontStyle, setFontStyle] = useState('normal');
-      const [textColor, setTextColor] = useState('#000000');
-      const [spacing, setSpacing] = useState(1);
-      const [dist, setDist] = useState(40);
-      const [showWhere, setShowWhere] = useState('both');
-      const [topStart, setTopStart] = useState(0);
+      const [fontStyle, setFontStyle]   = useState('normal');
+      const [textColor, setTextColor]   = useState('#000000');
+
+      const [showWhere, setShowWhere] = useState('both'); // both | top | bottom
+      const [topStart, setTopStart] = useState(0);         // 0‑1 turn offset
       const [botStart, setBotStart] = useState(0);
 
       /* Circle / Export */
       const [circleScale, setCircleScale] = useState(0.8);
-      const [exportSize, setExportSize] = useState(EXPORT_DEFAULT);
+      const [exportSize, setExportSize]   = useState(EXPORT_DEFAULT);
 
       /* Refs */
       const canvasRef = useRef(null);
@@ -111,7 +116,7 @@
         canvas.width = canvas.height = WORKING_CANVAS;
       }, []);
 
-      /* Upload */
+      /* Image upload */
       const handleUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file || !file.type.startsWith('image/')) return;
@@ -129,7 +134,7 @@
         reader.readAsDataURL(file);
       };
 
-      /* Dragging */
+      /* Dragging logic */
       const onPointerDown = (e) => {
         if (!image) return;
         setDragging(true);
@@ -147,7 +152,7 @@
       };
       const onPointerUp = () => setDragging(false);
 
-      /* Draw */
+      /* Drawing */
       useEffect(() => {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
@@ -161,12 +166,13 @@
         const center = { x: canvas.width / 2, y: canvas.height / 2 };
         const radius = Math.min(center.x, center.y) * circleScale;
 
-        /* Image */
+        /* Masked image */
         if (image) {
           ctx.save();
           ctx.beginPath();
           ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
           ctx.clip();
+
           ctx.translate(center.x + imagePos.x, center.y + imagePos.y);
           ctx.rotate((imageRot * Math.PI) / 180);
           ctx.scale(imageScale, imageScale);
@@ -174,50 +180,79 @@
           ctx.restore();
         }
 
-        /* Curved text */
-        const common = {
-          ctx,
-          center,
-          radius,
-          dist,
-          font: `${fontWeight} ${fontStyle} ${fontSize}px Arial`,
-          color: textColor,
-          spacing,
+        /* Curved text helper */
+        const drawText = ({ txt, fontSize, spacing, dist, start, invert }) => {
+          if (!txt) return;
+
+          ctx.save();
+          ctx.font = `${fontWeight} ${fontStyle} ${fontSize}px Arial`;
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const textRadius = radius + dist;
+          const full = Math.PI * 2;
+          const angPer = (full / txt.length) * spacing;
+          const baseAng = start * full;
+          const dir = invert ? -1 : 1; // direction along the path
+
+          [...txt].forEach((ch, i) => {
+            const ang = baseAng + dir * i * angPer;
+            ctx.save();
+            ctx.translate(
+              center.x + textRadius * Math.cos(ang),
+              center.y + textRadius * Math.sin(ang)
+            );
+            ctx.rotate(ang + (invert ? -Math.PI / 2 : Math.PI / 2));
+            ctx.fillText(ch, 0, 0);
+            ctx.restore();
+          });
+
+          ctx.restore();
         };
 
-        if (topText && (showWhere === 'top' || showWhere === 'both'))
-          drawText({ ...common, txt: topText, start: topStart, invert: false });
-        if (botText && (showWhere === 'bottom' || showWhere === 'both'))
-          drawText({ ...common, txt: botText, start: botStart, invert: true });
-      }, [image, imageScale, imagePos, imageRot, topText, botText, fontSize, fontWeight, fontStyle, textColor, spacing, dist, showWhere, topStart, botStart, circleScale]);
-
-      /* Text helper */
-      const drawText = ({ ctx, txt, center, radius, start, dist, font, color, spacing, invert }) => {
-        if (!txt.length) return;
-        ctx.save();
-        ctx.font = font;
-        ctx.fillStyle = color;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        const textR = radius + dist;
-        const full = Math.PI * 2;
-        const angPer = (full / txt.length) * spacing;
-        const baseAng = start * full;
-
-        const chars = invert ? [...txt] : [...txt];
-        const dir = invert ? -1 : 1;
-
-        chars.forEach((ch, i) => {
-          const ang = baseAng + dir * i * angPer;
-          ctx.save();
-          ctx.translate(center.x + textR * Math.cos(ang), center.y + textR * Math.sin(ang));
-          ctx.rotate(ang + (invert ? -Math.PI / 2 : Math.PI / 2));
-          ctx.fillText(ch, 0, 0);
-          ctx.restore();
-        });
-        ctx.restore();
-      };
+        /* Draw top / bottom text */
+        if (topText && (showWhere === 'top' || showWhere === 'both')) {
+          drawText({
+            txt: topText,
+            fontSize: topFontSize,
+            spacing: topSpacing,
+            dist: topDist,
+            start: topStart,
+            invert: false,
+          });
+        }
+        if (botText && (showWhere === 'bottom' || showWhere === 'both')) {
+          drawText({
+            txt: botText,
+            fontSize: botFontSize,
+            spacing: botSpacing,
+            dist: botDist,
+            start: botStart,
+            invert: true,
+          });
+        }
+      }, [
+        image,
+        imageScale,
+        imagePos,
+        imageRot,
+        circleScale,
+        topText,
+        botText,
+        topFontSize,
+        botFontSize,
+        topSpacing,
+        botSpacing,
+        topDist,
+        botDist,
+        topStart,
+        botStart,
+        fontWeight,
+        fontStyle,
+        textColor,
+        showWhere,
+      ]);
 
       /* Export */
       const handleSave = () => {
@@ -229,83 +264,221 @@
         }
         const out = document.createElement('canvas');
         out.width = out.height = size;
-        out.getContext('2d').drawImage(base, 0, 0, size, size);
+        const octx = out.getContext('2d');
+        octx.drawImage(base, 0, 0, size, size);
         download(out.toDataURL('image/png'), `circle-${size}px.png`);
-      };
-
-      const download = (url, name) => {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = name;
-        link.click();
       };
 
       /* UI */
       return (
-        <div className="w-full max-w-6xl mx-auto px-4 space-y-8">
-          {/* Upload */}
-          <input type="file" accept="image/*" className="hidden" ref={fileInput} onChange={handleUpload} />
-          <button className="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600" onClick={() => fileInput.current?.click()}>
-            Upload Image
-          </button>
+        <div className="max-w-5xl w-full grid lg:grid-cols-2 gap-8 px-4">
+          {/* Controls */}
+          <div className="space-y-6">
+            {/* Image controls */}
+            <div className="space-y-4 p-4 bg-white rounded shadow">
+              <h2 className="font-semibold text-lg">Image</h2>
+              <button
+                className="px-4 py-2 bg-indigo-600 text-white rounded"
+                onClick={() => fileInput.current.click()}
+              >
+                Upload Image
+              </button>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={fileInput}
+                onChange={handleUpload}
+              />
+              <Range
+                label="Scale"
+                value={imageScale}
+                min={0.05}
+                max={2}
+                step={0.05}
+                onChange={setImageScale}
+              />
+              <Range
+                label="Rotation"
+                value={imageRot}
+                min={-180}
+                max={180}
+                step={1}
+                onChange={setImageRot}
+              />
+            </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            {/* Controls */}
-            <div className="space-y-6 md:overflow-y-auto md:max-h-[34rem]">
-              <h2 className="text-lg font-semibold">Image</h2>
-              <Range label="Scale" value={imageScale} min={0.05} max={5} step={0.05} onChange={setImageScale} />
-              <Range label="Rotate" value={imageRot} min={-180} max={180} step={1} onChange={setImageRot} />
-
-              <h2 className="text-lg font-semibold pt-4">Circle</h2>
-              <Range label="Circle Size" value={circleScale} min={0.2} max={1} step={0.01} onChange={setCircleScale} />
-
-              <h2 className="text-lg font-semibold pt-4">Text</h2>
-              <TextInput label="Top Text" value={topText} onChange={setTopText} placeholder="TOP" />
-              <TextInput label="Bottom Text" value={botText} onChange={setBotText} placeholder="BOTTOM" />
-              <NumberInput label="Font Size" value={fontSize} onChange={setFontSize} min={10} max={200} step={1} />
-              <Range label="Letter Spacing" value={spacing} min={0.0} max={3} step={0.01} onChange={setSpacing} />
-              <NumberInput label="Text Distance" value={dist} onChange={setDist} min={0} max={200} step={1} />
-              <Range label="Top Start" value={topStart} min={0} max={1} step={0.01} onChange={setTopStart} />
-              <Range label="Bottom Start" value={botStart} min={0} max={1} step={0.01} onChange={setBotStart} />
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Text Color</label>
-                <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Show Text</label>
-                <div className="flex gap-4 mt-1">
-                  {['both', 'top', 'bottom'].map((opt) => (
-                    <label key={opt} className="flex items-center gap-1">
-                      <input type="radio" name="where" value={opt} checked={showWhere === opt} onChange={(e) => setShowWhere(e.target.value)} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <h2 className="text-lg font-semibold pt-4">Export</h2>
-              <NumberInput label="Size (px)" value={exportSize} onChange={setExportSize} min={EXPORT_MIN} max={EXPORT_MAX} step={50} />
-              <button className="w-full p-3 bg-green-600 text-white rounded hover:bg-green-700" onClick={handleSave}>
+            {/* Circle & Export */}
+            <div className="space-y-4 p-4 bg-white rounded shadow">
+              <h2 className="font-semibold text-lg">Circle / Export</h2>
+              <Range
+                label="Circle Scale"
+                value={circleScale}
+                min={0.4}
+                max={1}
+                step={0.01}
+                onChange={setCircleScale}
+              />
+              <Range
+                label="PNG Size (px)"
+                value={exportSize}
+                min={EXPORT_MIN}
+                max={EXPORT_MAX}
+                step={100}
+                onChange={setExportSize}
+              />
+              <button
+                className="px-4 py-2 bg-green-600 text-white rounded"
+                onClick={handleSave}
+              >
                 Download PNG
               </button>
             </div>
 
-            {/* Canvas */}
-            <div className="md:col-span-2 flex justify-center items-center">
-              <canvas
-                ref={canvasRef}
-                className="shadow rounded border bg-white cursor-move"
-                width={WORKING_CANVAS}
-                height={WORKING_CANVAS}
-                style={{ width: '100%', maxWidth: '100%', height: 'auto' }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerLeave={onPointerUp}
-              />
+            {/* Text inputs */}
+            <div className="space-y-8">
+              {/* Top text group */}
+              <div className="space-y-4 p-4 bg-white rounded shadow">
+                <h2 className="font-semibold text-lg">Top Text</h2>
+                <TextInput
+                  label="Content"
+                  value={topText}
+                  onChange={setTopText}
+                  placeholder="Top caption"
+                />
+                <Range
+                  label="Font Size"
+                  value={topFontSize}
+                  min={10}
+                  max={200}
+                  onChange={setTopFontSize}
+                />
+                <Range
+                  label="Letter Spacing"
+                  value={topSpacing}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={setTopSpacing}
+                />
+                <Range
+                  label="Distance"
+                  value={topDist}
+                  min={0}
+                  max={200}
+                  onChange={setTopDist}
+                />
+                <Range
+                  label="Start Offset (turns)"
+                  value={topStart}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={setTopStart}
+                />
+              </div>
+
+              {/* Bottom text group */}
+              <div className="space-y-4 p-4 bg-white rounded shadow">
+                <h2 className="font-semibold text-lg">Bottom Text</h2>
+                <TextInput
+                  label="Content"
+                  value={botText}
+                  onChange={setBotText}
+                  placeholder="Bottom caption"
+                />
+                <Range
+                  label="Font Size"
+                  value={botFontSize}
+                  min={10}
+                  max={200}
+                  onChange={setBotFontSize}
+                />
+                <Range
+                  label="Letter Spacing"
+                  value={botSpacing}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={setBotSpacing}
+                />
+                <Range
+                  label="Distance"
+                  value={botDist}
+                  min={0}
+                  max={200}
+                  onChange={setBotDist}
+                />
+                <Range
+                  label="Start Offset (turns)"
+                  value={botStart}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={setBotStart}
+                />
+              </div>
             </div>
+
+            {/* Shared typography controls */}
+            <div className="space-y-4 p-4 bg-white rounded shadow">
+              <h2 className="font-semibold text-lg">Shared Text Style</h2>
+              <div className="flex items-center space-x-4">
+                <label className="text-sm font-medium">Weight</label>
+                <select
+                  value={fontWeight}
+                  onChange={(e) => setFontWeight(e.target.value)}
+                  className="border rounded p-1"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="bold">Bold</option>
+                  <option value="900">Black</option>
+                </select>
+              </div>
+              <div className="flex items-center space-x-4">
+                <label className="text-sm font-medium">Style</label>
+                <select
+                  value={fontStyle}
+                  onChange={(e) => setFontStyle(e.target.value)}
+                  className="border rounded p-1"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="italic">Italic</option>
+                </select>
+              </div>
+              <div className="flex items-center space-x-4">
+                <label className="text-sm font-medium">Color</label>
+                <input
+                  type="color"
+                  value={textColor}
+                  onChange={(e) => setTextColor(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center space-x-4">
+                <label className="text-sm font-medium">Show</label>
+                <select
+                  value={showWhere}
+                  onChange={(e) => setShowWhere(e.target.value)}
+                  className="border rounded p-1"
+                >
+                  <option value="both">Both</option>
+                  <option value="top">Top Only</option>
+                  <option value="bottom">Bottom Only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Canvas */}
+          <div className="flex flex-col items-center">
+            <canvas
+              ref={canvasRef}
+              style={{ width: '100%', maxWidth: 500, cursor: image ? 'grab' : 'default' }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerLeave={onPointerUp}
+            />
           </div>
         </div>
       );
