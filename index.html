@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Circular Image Editor</title>
+
+    <!-- Tailwind (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & friends (development builds) -->
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <!-- Babel – lets us keep JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body class="bg-gray-50 min-h-screen flex flex-col items-center py-8">
+    <div id="root" class="w-full"></div>
+
+    <!-- Main application (JSX) -->
+    <script type="text/babel">
+      const { useState, useRef, useEffect } = React;
+
+      // ───── Config ─────
+      const DEFAULT_CANVAS = 500; // in‑app working canvas (keeps UI snappy)
+      const DEFAULT_EXPORT = 2000; // default export px
+
+      // ───── Helpers ─────
+      const Range = ({ value, min = 0, max = 1, step = 0.01, onChange }) => (
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="w-full"
+        />
+      );
+
+      const ToggleGroup = ({ options, value, set, labels = {} }) => (
+        <div className="flex space-x-1">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              className={`flex-1 px-2 py-1 rounded text-xs md:text-sm ${
+        /* active */
+        value === opt ? 'bg-blue-500 text-white' : 'bg-gray-200'
+      }`}
+              onClick={() => set(opt)}
+            >
+              {labels[opt] ?? opt}
+            </button>
+          ))}
+        </div>
+      );
+
+      const TextInput = ({ value, onChange, placeholder }) => (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full p-2 border rounded"
+        />
+      );
+
+      // ───── Main Component ─────
+      function CircularImageEditor() {
+        // Image state
+        const [image, setImage] = useState(null);
+        const [imageScale, setImageScale] = useState(1);
+        const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+        const [imageRotation, setImageRotation] = useState(0);
+        const [isDragging, setIsDragging] = useState(false);
+        const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+        // Text state
+        const [topText, setTopText] = useState('');
+        const [bottomText, setBottomText] = useState('');
+        const [textColor, setTextColor] = useState('#000000');
+        const [fontSize, setFontSize] = useState(24);
+        const [textPosition, setTextPosition] = useState('both'); // 'top' | 'bottom' | 'both'
+        const [textDistance, setTextDistance] = useState(20);
+        const [textSpacing, setTextSpacing] = useState(0.25);
+        const [fontWeight, setFontWeight] = useState('bold'); // 'normal' | 'bold'
+        const [fontStyle, setFontStyle] = useState('normal'); // 'normal' | 'italic'
+        const [topTextStart, setTopTextStart] = useState(0); // 0‑1 → angle
+        const [bottomTextStart, setBottomTextStart] = useState(0);
+
+        // Circle & export
+        const [circleScale, setCircleScale] = useState(0.8); // 0.4‑1 of radius
+        const [exportSize, setExportSize] = useState(DEFAULT_EXPORT);
+
+        // Refs
+        const canvasRef = useRef(null);
+        const fileInputRef = useRef(null);
+
+        // Upload handler
+        const handleFileUpload = (e) => {
+          const file = e.target.files?.[0];
+          if (!file || !file.type.match('image.*')) return;
+
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+              setImage(img);
+              setImagePosition({ x: 0, y: 0 });
+              setImageScale(1);
+              setImageRotation(0);
+            };
+            img.src = ev.target.result;
+          };
+          reader.readAsDataURL(file);
+        };
+
+        // Dragging helpers
+        const startDrag = (e) => {
+          if (!image) return;
+          setIsDragging(true);
+          setDragStart({ x: e.clientX - imagePosition.x, y: e.clientY - imagePosition.y });
+        };
+        const duringDrag = (e) => {
+          if (!isDragging) return;
+          setImagePosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+        };
+        const stopDrag = () => setIsDragging(false);
+
+        // Draw everything whenever state changes
+        useEffect(() => {
+          if (!image) return;
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          const c = { x: canvas.width / 2, y: canvas.height / 2 };
+          const radius = Math.min(c.x, c.y) * circleScale;
+
+          // Clear & white bg
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Draw clipped image
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, Math.PI * 2);
+          ctx.clip();
+
+          ctx.translate(c.x, c.y);
+          ctx.rotate((imageRotation * Math.PI) / 180);
+          ctx.scale(imageScale, imageScale);
+          ctx.drawImage(
+            image,
+            -image.width / 2 + imagePosition.x / imageScale,
+            -image.height / 2 + imagePosition.y / imageScale
+          );
+          ctx.restore();
+
+          // Draw curved text
+          const params = {
+            ctx,
+            center: c,
+            radius,
+            textDistance,
+            font: `${fontWeight} ${fontStyle} ${fontSize}px Arial`,
+            textColor,
+            letterSpacing: textSpacing,
+          };
+          if (topText && (textPosition === 'top' || textPosition === 'both'))
+            drawCurvedText({ ...params, text: topText, start: topTextStart });
+          if (bottomText && (textPosition === 'bottom' || textPosition === 'both'))
+            drawCurvedText({ ...params, text: bottomText, start: bottomTextStart });
+        }, [
+          image,
+          imageScale,
+          imagePosition,
+          imageRotation,
+          topText,
+          bottomText,
+          textColor,
+          fontSize,
+          textPosition,
+          textDistance,
+          textSpacing,
+          fontWeight,
+          fontStyle,
+          topTextStart,
+          bottomTextStart,
+          circleScale,
+        ]);
+
+        const drawCurvedText = ({ ctx, text, center, radius, start, textDistance, font, textColor, letterSpacing }) => {
+          ctx.save();
+          ctx.font = font;
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const textRadius = radius + textDistance;
+          const fullCircle = Math.PI * 2;
+          const letterAngle = (fullCircle / text.length) * letterSpacing;
+          const startAngle = start * fullCircle;
+
+          for (let i = 0; i < text.length; i++) {
+            const angle = startAngle + i * letterAngle;
+            ctx.save();
+            ctx.translate(
+              center.x + textRadius * Math.cos(angle),
+              center.y + textRadius * Math.sin(angle)
+            );
+            ctx.rotate(angle + Math.PI / 2);
+            ctx.fillText(text[i], 0, 0);
+            ctx.restore();
+          }
+          ctx.restore();
+        };
+
+        // Export PNG
+        const saveImage = () => {
+          const baseCanvas = canvasRef.current;
+          const size = Math.max(500, Math.min(3000, exportSize));
+          const finalCanvas = document.createElement('canvas');
+          finalCanvas.width = size;
+          finalCanvas.height = size;
+          const fctx = finalCanvas.getContext('2d');
+          fctx.fillStyle = '#ffffff';
+          fctx.fillRect(0, 0, size, size);
+          fctx.drawImage(baseCanvas, 0, 0, size, size);
+          const link = document.createElement('a');
+          link.download = `circle-image-${size}px.png`;
+          link.href = finalCanvas.toDataURL('image/png');
+          link.click();
+        };
+
+        // --- UI ---
+        return (
+          <div className="flex flex-col items-center w-full max-w-5xl mx-auto space-y-6 p-4">
+            {/* Upload */}
+            <div className="w-full">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+              <button
+                className="w-full p-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+                onClick={() => fileInputRef.current.click()}
+              >
+                Upload Image
+              </button>
+            </div>
+
+            {image ? (
+              <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Controls */}
+                <div className="space-y-4 col-span-1 overflow-y-auto max-h-[32rem] p-2">
+                  {/* Image controls */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Image Scale</label>
+                    <Range value={imageScale} min={0.5} max={3} step={0.1} onChange={setImageScale} />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Image Rotation</label>
+                    <Range value={imageRotation} min={0} max={360} step={1} onChange={setImageRotation} />
+                  </div>
+                  {/* Circle size */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Circle Size</label>
+                    <Range value={circleScale} min={0.4} max={1} step={0.05} onChange={setCircleScale} />
+                    <span className="text-xs">{(circleScale * 100).toFixed(0)}%</span>
+                  </div>
+                  {/* Text fields */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Top Text</label>
+                    <TextInput value={topText} onChange={setTopText} placeholder="Top text…" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Bottom Text</label>
+                    <TextInput value={bottomText} onChange={setBottomText} placeholder="Bottom text…" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Text Color</label>
+                    <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Font Size</label>
+                    <Range value={fontSize} min={12} max={48} step={1} onChange={setFontSize} />
+                    <span className="text-xs">{fontSize}px</span>
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Text Distance</label>
+                    <Range value={textDistance} min={0} max={100} step={1} onChange={setTextDistance} />
+                    <span className="text-xs">{textDistance}px</span>
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Letter Spacing</label>
+                    <Range value={textSpacing} min={0.05} max={1} step={0.05} onChange={setTextSpacing} />
+                    <span className="text-xs">×{textSpacing.toFixed(2)}</span>
+                  </div>
+                  {/* Display mode */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Text Display</label>
+                    <ToggleGroup
+                      options={['top', 'bottom', 'both']}
+                      value={textPosition}
+                      set={setTextPosition}
+                      labels={{ top: 'Top', bottom: 'Bottom', both: 'Both' }}
+                    />
+                  </div>
+                  {/* Font weight & style */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Font Weight</label>
+                    <ToggleGroup options={['normal', 'bold']} value={fontWeight} set={setFontWeight} />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Font Style</label>
+                    <ToggleGroup options={['normal', 'italic']} value={fontStyle} set={setFontStyle} />
+                  </div>
+                  {/* Start angles (0‑360) */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Top Text Start Angle</label>
+                    <Range value={topTextStart} min={0} max={1} step={0.01} onChange={setTopTextStart} />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Bottom Text Start Angle</label>
+                    <Range value={bottomTextStart} min={0} max={1} step={0.01} onChange={setBottomTextStart} />
+                  </div>
+                  {/* Export size */}
+                  <div>
+                    <label className="block mb-1 text-sm font-medium">Export Size (px)</label>
+                    <input
+                      type="number"
+                      min={500}
+                      max={3000}
+                      value={exportSize}
+                      onChange={(e) => setExportSize(parseInt(e.target.value) || DEFAULT_EXPORT)}
+                      className="w-full p-1 border rounded"
+                    />
+                  </div>
+
+                  <button
+                    className="w-full p-3 bg-green-500 text-white rounded hover:bg-green-600 transition"
+                    onClick={saveImage}
+                  >
+                    Save PNG
+                  </button>
+                </div>
+
+                {/* Canvas */}
+                <div
+                  className="col-span-2 relative select-none"
+                  onMouseDown={startDrag}
+                  onMouseMove={duringDrag}
+                  onMouseUp={stopDrag}
+                  onMouseLeave={stopDrag}
+                >
+                  <p className="mb-2 text-sm text-gray-500 text-center md:text-left">
+                    Drag the image to reposition inside the circle
+                  </p>
+                  <canvas
+                    ref={canvasRef}
+                    width={DEFAULT_CANVAS}
+                    height={DEFAULT_CANVAS}
+                    className="border rounded w-full h-auto cursor-move"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="w-full p-12 border-2 border-dashed rounded-lg text-center text-gray-400">
+                Upload an image to get started
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Render app
+      ReactDOM.render(<CircularImageEditor />, document.getElementById('root'));
+    </script>
+  </body>
+</html>
